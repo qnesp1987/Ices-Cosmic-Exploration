@@ -3,10 +3,11 @@ using Dalamud.Interface.Textures;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
-using ICE.Ui.MainUi;
+using ICE.Ui.MainUi.ModeSelect_Modes;
+using ICE.Ui.MainUi.ModeSelect_Modes.CosmicTable;
+using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Windows.Forms;
 
 namespace ICE.Utilities.ImGuiTools;
 
@@ -43,26 +44,13 @@ public static partial class ImGui_Ice
 
         return Svc.Texture.GetFromManifestResource(Assembly.GetExecutingAssembly(), greyJobIcon).GetWrapOrEmpty();
     }
-    public static bool Sidebar_CollaspableHeader(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null)
+    public static bool Sidebar_CollaspableHeader(string label, SidebarTabs tab, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null)
     {
         float scale = ImGuiHelpers.GlobalScale;
 
         // Default Colors for Theming. This is really here to make sure it's formatted as I want it to be
         var headerColor = ImGui.GetColorU32(ImGuiCol.Header);
         var textColor = ImGui.GetColorU32(ImGuiCol.Text);
-
-        // This is here to make sure that
-        // A: If it doesn't already exist, add it and just make it false (This makes it to where it's not expanded by default)
-        //    - Could absolutely change that to true if I want to make it shown on inital creation
-        // B: Returns the state in a form to where if that's true, then I could display the elements below it properly
-        string categoryId = label;
-        if (!C.MainUi_CustomHeader.ContainsKey(categoryId))
-        {
-            C.MainUi_CustomHeader[categoryId] = false;
-            C.SaveDebounced();
-        }
-
-        bool isExpanded = C.MainUi_CustomHeader[categoryId];
 
         // Need these here for two reasons:
         // 1: drawList allows me to create un-conventional things that isn't included in the Imgui Library
@@ -79,12 +67,17 @@ public static partial class ImGui_Ice
         // Check for click, nice little rectangle area where it can be clicked at. This takes in account the above things to make sure it's only clicking within this area
         bool isHovered = ImGui.IsMouseHoveringRect(cursorPos, new Vector2(cursorPos.X + width, cursorPos.Y + height));
         bool isClicked = isHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left);
+        bool isExpanded = C.ExpandedTabs.HasFlag(tab);
 
         if (isClicked)
         {
-            C.MainUi_CustomHeader[categoryId] = !C.MainUi_CustomHeader[categoryId];
-            isExpanded = C.MainUi_CustomHeader[categoryId];
+            // I hate fucking ? statments lol
+            C.ExpandedTabs = isExpanded
+                ? C.ExpandedTabs & ~tab  // was on → turn off 
+                : C.ExpandedTabs | tab;  // was off → turn on
             C.SaveDebounced();
+
+            isExpanded = C.ExpandedTabs.HasFlag(tab);
         }
 
         // Change header color slightly on hover, just a nice QOL
@@ -156,9 +149,9 @@ public static partial class ImGui_Ice
 
         return isExpanded;
     }
-    public static void DrawSelectable_Icon(FontAwesomeIcon icon, string label, string id)
+    public static void DrawSelectable_Icon(FontAwesomeIcon icon, string label, WindowSelection tab)
     {
-        bool isSelected = C.MainUi_SelectedWindow == id;
+        bool isSelected = C.SelectedTab == tab;
         float scale = ImGuiHelpers.GlobalScale;
 
         // Change background color if selected
@@ -173,9 +166,9 @@ public static partial class ImGui_Ice
         float width = ImGui.GetContentRegionAvail().X;
 
         // Invisible selectable as the clickable area (scaled height)
-        if (ImGui.Selectable($"##{id}", isSelected, ImGuiSelectableFlags.None, new Vector2(width, 25 * scale)))
+        if (ImGui.Selectable($"##{label}_{tab.ToString()}", isSelected, ImGuiSelectableFlags.None, new Vector2(width, 25 * scale)))
         {
-            C.MainUi_SelectedWindow = id;
+            C.SelectedTab = tab;
             C.SaveDebounced();
         }
 
@@ -209,9 +202,9 @@ public static partial class ImGui_Ice
         // Add small spacing between items (scaled)
         ImGui.Dummy(new Vector2(0, 2 * scale));
     }
-    public static void DrawSelectable_Image(uint iconId, string label, string id)
+    public static void DrawSelectable_Image(uint iconId, string label, WindowSelection tab)
     {
-        bool isSelected = C.MainUi_SelectedWindow == id;
+        bool isSelected = C.SelectedTab == tab;
         float scale = ImGuiHelpers.GlobalScale;
 
         // Change background color if selected
@@ -226,9 +219,9 @@ public static partial class ImGui_Ice
         float width = ImGui.GetContentRegionAvail().X;
 
         // Invisible selectable as the clickable area (scaled height)
-        if (ImGui.Selectable($"##{id}", isSelected, ImGuiSelectableFlags.None, new Vector2(width, 25 * scale)))
+        if (ImGui.Selectable($"##{label}_{tab.ToString()}", isSelected, ImGuiSelectableFlags.None, new Vector2(width, 25 * scale)))
         {
-            C.MainUi_SelectedWindow = id;
+            C.SelectedTab = tab;
             C.SaveDebounced();
         }
 
@@ -341,6 +334,50 @@ public static partial class ImGui_Ice
 
         return clicked;
     }
+    public static bool DrawStyledImageButton(ISharedImmediateTexture? icon, ItemFilter planetFilter)
+    {
+        Vector4 buttonColor, borderColor;
+        float borderSize;
+        bool enabled = C.MissionFilter.HasFlag(planetFilter);
+
+        if (enabled)
+        {
+            buttonColor = new Vector4(0.3f, 0.3f, 0.35f, 0.7f);
+            borderColor = new Vector4(0.898f, 0.8f, 0.501f, 1f);
+            borderSize = 1.0f;
+        }
+        else
+        {
+            buttonColor = new Vector4(0.2f, 0.2f, 0.2f, 0.1f);
+            borderColor = new Vector4(0.4f, 0.4f, 0.4f, 0.5f);
+            borderSize = 0.5f;
+        }
+
+        float zoomFactor = 0.25f; // 25% zoom-in
+        float cropAmount = zoomFactor / 2; // Crop equally from all sides
+
+        Vector2 uv0 = enabled ? new Vector2(0, 0) : new Vector2(cropAmount, cropAmount);
+        Vector2 uv1 = enabled ? new Vector2(1, 1) : new Vector2(1 - cropAmount, 1 - cropAmount);
+
+
+        float scale = ImGuiHelpers.GlobalScale;
+        Vector2 size = new(24 * scale);
+
+        // Applies the custom code
+        ImGui.PushStyleColor(ImGuiCol.Button, buttonColor);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, buttonColor * 1.1f); // Slightly brighter on hover
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, buttonColor * 0.9f);  // Slightly darker when pressed
+        ImGui.PushStyleColor(ImGuiCol.Border, borderColor);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, borderSize);
+
+        bool clicked = ImGui.ImageButton(icon.GetWrapOrEmpty().Handle, size, uv0, uv1);
+
+        // Restore original styling
+        ImGui.PopStyleVar(); // FrameBorderSize
+        ImGui.PopStyleColor(4); // Button, ButtonHovered, ButtonActive, Border
+
+        return clicked;
+    }
     public static bool DrawCompactCategoryHeader(string label, FontAwesomeIcon? icon = null)
     {
         var drawList = ImGui.GetWindowDrawList();
@@ -413,13 +450,13 @@ public static partial class ImGui_Ice
 
         return isExpanded;
     }
-    public static void DrawJobButtons(uint jobId, string tooltip)
+    public static void DrawJobButtons(uint jobId, CosmicHelper.JobClass classInfo)
     {
         float scale = ImGuiHelpers.GlobalScale;
 
         uint selectedJob = C.SelectedJob;
-        bool state = selectedJob == jobId;
-        var iconEnabled = CosmicHelper.JobIconDict[jobId];
+        bool state = C.JobFilter.HasFlag(classInfo.JobFlag);
+        var iconEnabled = classInfo.JobIcon;
         var iconDisabled = GetGreyscaleJob(jobId);
         Vector2 size = new Vector2(26 * scale, 26 * scale);
         bool autoPickCurrentJob = C.AutoPickCurrentJob;
@@ -434,8 +471,13 @@ public static partial class ImGui_Ice
                     C.AutoPickCurrentJob = autoPickCurrentJob;
                 }
 
-                C.SelectedJob = jobId;
+                C.JobFilter = state
+                    ? C.JobFilter & ~classInfo.JobFlag
+                    : C.JobFilter | classInfo.JobFlag;
                 C.Save();
+
+                if (Mission_Setup.MissionTable != null)
+                    Mission_Setup.MissionTable.SetFilterDirty();
             }
         }
         else if (!state)
@@ -448,14 +490,19 @@ public static partial class ImGui_Ice
                     C.AutoPickCurrentJob = autoPickCurrentJob;
                 }
 
-                C.SelectedJob = jobId;
+                C.JobFilter = state
+                    ? C.JobFilter & ~classInfo.JobFlag
+                    : C.JobFilter | classInfo.JobFlag;
                 C.Save();
+
+                if (Mission_Setup.MissionTable != null)
+                    Mission_Setup.MissionTable.SetFilterDirty();
             }
         }
         if (ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();
-            ImGui.Text(tooltip);
+            ImGui.Text(classInfo.shortName);
             ImGui.EndTooltip();
         }
     }
@@ -486,12 +533,19 @@ public static partial class ImGui_Ice
         // Defining the colors globaly here just cause they're used across the board
         var blueColor = new Vector4(0.2f, 0.6f, 1f, 1f);      // Blue #3399ff  - Fill Bar Part #1 (Left Side)
         var greenColor = new Vector4(0.6f, 1f, 0.8f, 1f);      // Green #99ffcc - Fill Bar Part #2 (Right Side)
-        var goldColor = new Vector4(1f, 0.84f, 0f, 1f);      // Gold #ffd600  - Overcap color
+        var brassColor = new Vector4(0.71f, 0.55f, 0.18f, 1f);  // Brass #b58d2e - Fill Bar Part #1 (Left Side)
+        var goldColor = new Vector4(1f, 0.84f, 0f, 1f);        // Gold #ffd600  - Fill Bar Part #2 (Right Side)
 
         // Case 1: At or above cap when needed == max (show full gold) [Really only used when at max stage for that planet when a new one comes out)
         if (needed > 0 && needed == max && current >= needed)
         {
-            drawList.AddRectFilled(barStart, barEnd, ImGui.GetColorU32(goldColor));
+            drawList.AddRectFilledMultiColor(
+                barStart, barEnd,
+                    ImGui.GetColorU32(brassColor),  // top-left
+                    ImGui.GetColorU32(goldColor),   // top-right
+                    ImGui.GetColorU32(goldColor),   // bottom-right
+                    ImGui.GetColorU32(brassColor)   // bottom-left
+                );
         }
         // Case 2: Normal progression (not overcapped)
         else if (current <= needed && needed > 0)
@@ -532,7 +586,13 @@ public static partial class ImGui_Ice
             if (goldWidth > 0f)
             {
                 var goldEnd = new Vector2(pos.X + goldWidth, pos.Y + actualSize.Y);
-                drawList.AddRectFilled(barStart, goldEnd, ImGui.GetColorU32(goldColor));
+                drawList.AddRectFilledMultiColor(
+                    barStart, goldEnd,
+                    ImGui.GetColorU32(brassColor),  // top-left
+                    ImGui.GetColorU32(goldColor),   // top-right
+                    ImGui.GetColorU32(goldColor),   // bottom-right
+                    ImGui.GetColorU32(brassColor)   // bottom-left
+                );
             }
         }
         // Case 4: No needed XP (cosmic score scenario - just show progress to max) [Nice for just pure gold bar to fill]
@@ -544,7 +604,13 @@ public static partial class ImGui_Ice
             if (filledWidth > 0f)
             {
                 var filledEnd = new Vector2(pos.X + filledWidth, pos.Y + actualSize.Y);
-                drawList.AddRectFilled(barStart, filledEnd, ImGui.GetColorU32(goldColor));
+                drawList.AddRectFilledMultiColor(
+                    barStart, filledEnd,
+                    ImGui.GetColorU32(brassColor),  // top-left
+                    ImGui.GetColorU32(goldColor),   // top-right
+                    ImGui.GetColorU32(goldColor),   // bottom-right
+                    ImGui.GetColorU32(brassColor)   // bottom-left
+                );
             }
         }
 
@@ -625,6 +691,81 @@ public static partial class ImGui_Ice
         // Create an invisible button to properly reserve space and handle layout
         ImGui.SetCursorScreenPos(cursorPos);
         ImGui.InvisibleButton($"##{categoryId}_btn", new Vector2(contentWidth, contentHeight));
+
+        // Add spacing after the button (scaled)
+        ImGui.SameLine(0, spacingAfter * scale);
+
+        return isExpanded;
+    }
+    internal static bool DrawRankButton(string label, MissionFilter missionType, Mission_Table? missionTable, FontAwesomeIcon? icon = null, float spacingAfter = 5, bool disabled = false)
+    {
+        float scale = ImGuiHelpers.GlobalScale;
+
+        // Setting the values of the content size (padding, spacing, etc) that way it's used across the board
+        float horizontalPadding = 8 * scale;
+        float verticalPadding = 4 * scale;
+        float iconTextSpacing = 4 * scale;
+
+        // These are to make sure that they're drawn in place
+        var drawList = ImGui.GetWindowDrawList();
+        var cursorPos = ImGui.GetCursorScreenPos();
+
+        // Calculate text size
+        var textSize = ImGui.CalcTextSize(label);
+
+        // Calculate icon width if present
+        float iconWidth = icon.HasValue ? textSize.Y + iconTextSpacing : 0;
+
+        // Calculate button dimensions based on content
+        float contentWidth = horizontalPadding * 2 + iconWidth + textSize.X;
+        float contentHeight = verticalPadding * 2 + textSize.Y;
+
+        // Initialize category state if needed
+        bool isExpanded = C.MissionFilter.HasFlag(missionType);
+
+        // Calculate interaction state
+        var buttonRect = new Vector2(cursorPos.X + contentWidth, cursorPos.Y + contentHeight);
+        bool isHovered = !disabled && ImGui.IsMouseHoveringRect(cursorPos, buttonRect)
+                      && ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup | ImGuiHoveredFlags.ChildWindows);
+        bool isClicked = isHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left);
+
+        if (isClicked)
+        {
+            // I hate fucking ? statments lol
+            C.MissionFilter = isExpanded
+                ? C.MissionFilter & ~missionType  // was on → turn off 
+                : C.MissionFilter | missionType;  // was off → turn on
+            C.SaveDebounced();
+            missionTable?.SetFilterDirty();
+        }
+
+        // Determine colors based on state
+        var headerColor = GetButtonColor(isExpanded, isHovered, disabled);
+        var textColor = disabled
+            ? ImGui.GetColorU32(ImGuiCol.TextDisabled)
+            : ImGui.GetColorU32(ImGuiCol.Text);
+
+        // Draw background rectangle with rounded corners (scaled)
+        drawList.AddRectFilled(cursorPos, buttonRect, headerColor, 5.0f * scale);
+
+        // Draw content with disabled color if needed
+        ImGui.SetCursorScreenPos(new Vector2(cursorPos.X + horizontalPadding, cursorPos.Y + verticalPadding));
+
+        ImGui.PushStyleColor(ImGuiCol.Text, textColor);
+
+        // Draw icon if provided
+        if (icon.HasValue)
+        {
+            ImGuiEx.Icon(icon.Value);
+            ImGui.SameLine(0, iconTextSpacing);
+        }
+
+        ImGui.Text(label);
+        ImGui.PopStyleColor();
+
+        // Create an invisible button to properly reserve space and handle layout
+        ImGui.SetCursorScreenPos(cursorPos);
+        ImGui.InvisibleButton($"##{label}_{missionType.ToString()}_btn", new Vector2(contentWidth, contentHeight));
 
         // Add spacing after the button (scaled)
         ImGui.SameLine(0, spacingAfter * scale);
@@ -822,77 +963,10 @@ public static partial class ImGui_Ice
             }
         }
     }
-    public static bool Table_CenterCheckbox(string id, ref bool value)
+    public static void WindowSpacer()
     {
-        var cursorPos = ImGui.GetCursorPos();
-        var availWidth = ImGui.GetContentRegionAvail().X;
-
-        var checkboxSize = ImGui.GetFrameHeight();
-        ImGui.SetCursorPosX(cursorPos.X + (availWidth - checkboxSize) * 0.5f);
-        ImGui.AlignTextToFramePadding();
-
-        return ImGui.Checkbox($"##{id}", ref value);
-    }
-    public static void Table_FullCenterText(string text)
-    {
-        var cursorPosX = ImGui.GetCursorPosX();
-        var availWidth = ImGui.GetContentRegionAvail().X;
-        var textWidth = ImGui.CalcTextSize(text).X;
-
-        ImGui.SetCursorPosX(cursorPosX + (availWidth - textWidth) * 0.5f);
-        ImGui.AlignTextToFramePadding();
-
-        ImGui.TextUnformatted(text);
-    }
-    public static void Table_FullCenterText(string icon, Vector4 color)
-    {
-        var cursorPosX = ImGui.GetCursorPosX();
-        var availWidth = ImGui.GetContentRegionAvail().X;
-        var textWidth = ImGui.CalcTextSize(icon).X;
-
-        ImGui.SetCursorPosX(cursorPosX + (availWidth - textWidth) * 0.5f);
-        ImGui.AlignTextToFramePadding();
-
-        FontAwesome.Print(color, icon);
-    }
-    public static void Table_FontFullCenter(FontAwesomeIcon icon)
-    {
-        var cursorPosX = ImGui.GetCursorPosX();
-        var availWidth = ImGui.GetContentRegionAvail().X;
-        var textWidth = ImGui.CalcTextSize(icon.ToIconString()).X;
-
-        ImGui.SetCursorPosX(cursorPosX + (availWidth - textWidth) * 0.5f);
-        ImGui.AlignTextToFramePadding();
-
-        ImGui.PushFont(UiBuilder.IconFont);
-        ImGui.Text(icon.ToIconString());
-        ImGui.PopFont();
-    }
-    public static bool Table_CenteredButton(string label, Vector2? buttonSize = null)
-    {
-        var cursorPosX = ImGui.GetCursorPosX();
-        var availWidth = ImGui.GetContentRegionAvail().X;
-
-        Vector2 actualButtonSize;
-        if (buttonSize.HasValue)
-        {
-            actualButtonSize = buttonSize.Value;
-        }
-        else
-        {
-            var textSize = ImGui.CalcTextSize(label);
-            var framePadding = ImGui.GetStyle().FramePadding;
-            actualButtonSize = new Vector2(textSize.X + framePadding.X * 2 + 10f, textSize.Y + framePadding.Y * 2);
-        }
-
-        ImGui.SetCursorPosX(cursorPosX + (availWidth - actualButtonSize.X) * 0.5f);
-        return ImGui.Button(label, actualButtonSize);
-    }
-    public static void Table_FontCenter(FontAwesomeIcon icon)
-    {
-        ImGui.AlignTextToFramePadding();
-        ImGui.PushFont(UiBuilder.IconFont);
-        ImGui.Text(icon.ToIconString());
-        ImGui.PopFont();
+        ImGui.Dummy(new Vector2(0, 5));
+        ImGui.Separator();
+        ImGui.Dummy(new Vector2(0, 5));
     }
 }

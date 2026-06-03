@@ -1,4 +1,5 @@
 ﻿using Dalamud.Interface.Utility.Raii;
+using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 
 namespace ICE.Ui.DebugWindowTabs
@@ -85,10 +86,10 @@ namespace ICE.Ui.DebugWindowTabs
                         int jobCount = 0;
                         foreach (var job in value.Jobs)
                         {
-                            var jobIcon = CosmicHelper.JobIconDict[job];
+                            var jobIcon = CosmicHelper.ClassInfoDict[job];
                             if (jobCount > 0)
                                 ImGui.SameLine();
-                            ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, new(24, 24));
+                            ImGui.Image(jobIcon.JobIcon.GetWrapOrEmpty().Handle, new(24, 24));
                             jobCount += 1;
                         }
 

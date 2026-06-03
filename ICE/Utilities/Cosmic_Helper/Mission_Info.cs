@@ -4,7 +4,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 
-namespace ICE.Utilities;
+namespace ICE.Utilities.Cosmic_Helper;
 
 public static partial class CosmicHelper
 {
@@ -23,7 +23,7 @@ public static partial class CosmicHelper
                 if (manager == null)
                     return 0; // or some default value
 
-                return manager->CurrentMissionUnitRowId;
+                return manager->State.CurrentMission.MissionUnitRowId;
             }
             catch (AccessViolationException)
             {
@@ -37,11 +37,11 @@ public static partial class CosmicHelper
             }
         }
     }
-    public static unsafe uint? CurrentBait => WKSManager.Instance()->FishingBait;
+    public static unsafe uint? CurrentBait => WKSManager.Instance()->State.FishingBait;
     // public static unsafe uint CurrentLunarDevelopment => ExcelHelper.DevGrade.GetRow(WKSManager.Instance()->DevGrade).Unknown6;
     public static unsafe uint CurrentLunarDevelopment = 0;
 
-    public static int MaxXpKind = 6;
+    public static int MaxXpKind = 7;
 
     public static Dictionary<int, string> ExpDictionary = new()
     {
@@ -50,15 +50,8 @@ public static partial class CosmicHelper
         { 3, "III" },
         { 4, "IV" },
         { 5, "V" },
-        { 6, "VI" }
-    };
-
-    public static readonly Dictionary<uint, uint> PlanetCreditInfo = new()
-    {
-        [1237] = 45691, // sinus
-        [1291] = 48146, // phaenna
-        [1310] = 48147, // Oizys
-        // [] = 48148, // moon 4
+        { 6, "VI" },
+        { 7, "VII" },
     };
 
     public class Dronebit
@@ -66,16 +59,6 @@ public static partial class CosmicHelper
         public uint creditId { get; set; } = 0;
         public uint boxId { get; set; } = 0;
     }
-
-    public static readonly Dictionary<uint, Dronebit> DronebitInfo = new()
-    {
-        [1310] = new() // Oizys
-        {
-            creditId = 49170,
-            boxId = 50414,
-        }
-        // [] = ???    // Next Planet (Maybe)
-    };
 
     // General use functions used across the codebase, specifically tied to cosmic related functions
     public static void OpenStellarMission()
@@ -113,7 +96,7 @@ public static partial class CosmicHelper
         public int Max { get; set; } = 0;
     }
 
-    public unsafe static Dictionary<uint, ClassInfo> Cosmic_ClassInfo()
+    public static unsafe Dictionary<uint, ClassInfo> Cosmic_ClassInfo()
     {
         Dictionary<uint, ClassInfo> cosmicClassInfo = new()
         {
@@ -133,8 +116,11 @@ public static partial class CosmicHelper
         var wksManagerPtr = WKSManager.Instance();
         if (wksManagerPtr == null)
         {
-            if (EzThrottler.Throttle("Throttling log message", 3000))
-                IceLogging.Error("WKSManager returned null");
+            if (PlayerHelper.IsInCosmicZone())
+            {
+                if (EzThrottler.Throttle("Throttling log message", 3000))
+                    IceLogging.Error("WKSManager returned null");
+            }
             return cosmicClassInfo;
         }
 
@@ -157,23 +143,27 @@ public static partial class CosmicHelper
             byte toolClassId = (byte)(jobId - 7);
             byte arrayIndex = (byte)(toolClassId - 1);
 
-            var score = wks->Scores[arrayIndex];
+            var score = wks->State.Scores[arrayIndex];
             var currentStage = researchModule->CurrentStages[arrayIndex];
-            var nextStage = currentStage == CosmicHelper.MaxRelicLevel
-                ? CosmicHelper.MaxRelicLevel
+            // Cap next stage by current hub (Auxesia allows higher than old flat 17).
+            var maxStage = CosmicMoonRegistry.GetMaxRelicStage((uint)Svc.ClientState.TerritoryType);
+            var nextStage = currentStage >= maxStage
+                ? maxStage
                 : (byte)(currentStage + 1);
 
             ClassInfo entry = new()
             {
                 Score = score,
                 Stage_Current = currentStage,
-                Stage_Next = nextStage
+                Stage_Next = nextStage,
             };
 
             for (byte type = 1; type <= MaxXpKind; type++)
             {
                 if (!researchModuleFuncs->IsTypeAvailable(toolClassId, type))
+                {
                     break;
+                }
 
                 entry.CurrentExp[type] = new()
                 {
@@ -188,5 +178,45 @@ public static partial class CosmicHelper
         }
 
         return cosmicClassInfo;
+    }
+    public unsafe static void Update_MissionCompletion()
+    {
+        foreach (var mission in CosmicHelper.SheetMissionDict)
+            mission.Value.CompletionStatus = CosmicHandler.MissionStatus(mission.Key);
+    }
+    public static unsafe bool Task_UpdateRelicMissionInfo()
+    {
+        string tag = "Task: Update Cosmic Info";
+
+        if (PlayerHelper.IsInCosmicZone())
+        {
+            if (PlayerHelper.IsScreenReady())
+            {
+                var wksManagerPtr = WKSManager.Instance();
+                if (wksManagerPtr == null)
+                {
+                    if (EzThrottler.Throttle("Update Stats"))
+                        IceLogging.Verbose("Waiting for the wksManager to be loaded", tag);
+
+                    return false;
+                }
+                else
+                {
+                    Update_MissionCompletion();
+                    // IceLogging.Verbose("Updated cosmic dictionary to have proper values", tag);
+                    return true;
+                }
+            }
+            else
+            {
+                IceLogging.Verbose("Waiting for screen to be ready...", tag);
+                return false;
+            }
+        }
+        else
+        {
+            IceLogging.Verbose("We're not in a cosmic area, so we're going to just exit this check", tag);
+            return true;
+        }
     }
 }

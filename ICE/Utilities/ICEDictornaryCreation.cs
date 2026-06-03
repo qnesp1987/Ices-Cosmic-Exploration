@@ -1,28 +1,29 @@
 ﻿using ICE.ConfigFiles;
-using ICE.Ui.MainUi.ModeSelect_Modes;
+using ICE.Ui;
 using ICE.Ui.MainUi.Settings;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using Lumina.Excel.Sheets;
 using System.Collections.Generic;
-using TerraFX.Interop.Windows;
 using static ICE.ConfigFiles.Config;
-using static ICE.Utilities.CosmicHelper;
+using static ICE.Utilities.Cosmic_Helper.CosmicHelper;
 using static ICE.Utilities.ExcelHelper;
 
 namespace ICE;
 
 public sealed partial class ICE
 {
-    public static unsafe void DictionaryCreation()
+    public static void DictionaryCreation()
     {
         var MainMoonSheet = Svc.Data.GetExcelSheet<WKSMissionUnit>();
-        string tag = "[Dictionary Creation]";
+
+        // Build PlaceName -> territory map before we assign TerritoryId on each CosmicInfo entry
+        CosmicTerritoryResolver.Initialize();
 
         foreach (var entry in MainMoonSheet)
         {
-            Dictionary<ushort, CosmicHelper.CraftingInfo> crafts_Main = new();
-            Dictionary<ushort, CosmicHelper.CraftingInfo> crafts_Pre = new();
+            Dictionary<ushort, CraftingInfo> crafts_Main = new();
+            Dictionary<ushort, CraftingInfo> crafts_Pre = new();
             Dictionary<uint, int> gathering_Min = new();
             List<uint> jobs = new();
             Dictionary<int, int> relicXp = new();
@@ -105,45 +106,21 @@ public sealed partial class ICE
             // - - - HEY. BRONZE SCORE IS KEPT HERE - - - //
             uint bronze = missionToDo.Unknown2;
 
-            // TerritoryId that's assigned to each planet. There doesn't seem to be a direct way to grab this...
-            // So just going to hard assign this. TODO: Add last planet when it comes out
-            uint territoryId = 1237;
-            if (keyId < 545)
-            {
-                territoryId = 1237;
-            }
-            else if (keyId < 1040)
-            {
-                territoryId = 1291;
-            }
-            else if (keyId < 1370)
-            {
-                territoryId = 1310;
-            }
+            // Which moon this mission belongs to (TerritoryType ID, not mission row ID)
+            uint territoryId = CosmicTerritoryResolver.Resolve(entry);
+            if (territoryId == 0)
+                continue; // unresolved — logged once in resolver; do not default to Sinus
 
             // Map Marker Information
             var marker = missionToDo.MapMarker;
             Vector2 mapFlag = new(marker.Value.X - 1024, (marker.Value.Y - 1024));
             int radius = marker.Value.Radius;
 
-            // Oizys decided they were going to perfectly overlap 2 of the markers *-perfectly-*
-            // So specific missions have their positions changed *-ever-* so slightly to make them different for personal use
-            if (keyId == 1272)
-            {
-                mapFlag = new(-340, 870);
-            }
-            else if (keyId == 1264)
-            {
-                mapFlag = new(-573, 3);
-            }
-            else if (keyId == 1296)
-            {
-                mapFlag = new(-514, 232);
-            }
-            else if (keyId is 1317 or 1318 or 1319)
-            {
-                mapFlag = new(mapFlag.X + 1, mapFlag.Y + 1);
-            }
+            // Stacked map markers — nudge slightly so route editor keys stay unique per mission row.
+            if (CosmicMapMarkerNudges.TryGetOverride(keyId, out var overrideFlag))
+                mapFlag = overrideFlag;
+            else if (CosmicMapMarkerNudges.TryGetOverlapNudge(keyId, mapFlag, out var nudgedFlag))
+                mapFlag = nudgedFlag;
 
             // Mission Attributes/Flags. Esentially a quick way to know what is what kind of mission at a quick glance
             MissionAttributes attributes = MissionAttributes.None;
@@ -173,21 +150,21 @@ public sealed partial class ICE
                 attributes = missionToDo.WKSMissionText.RowId switch
                 {
                     103 => MissionAttributes.Gather | MissionAttributes.Limited,
-                    104 => MissionAttributes.Gather | MissionAttributes.ScoreTimeRemaining,
+                    104 => MissionAttributes.Gather | MissionAttributes.Score_TimeRemaining,
                     105 => MissionAttributes.Gather,
-                    106 => MissionAttributes.Gather | MissionAttributes.ScoreChains,
-                    107 => MissionAttributes.Gather | MissionAttributes.ScoreGatherersBoon,
-                    108 => MissionAttributes.Gather | MissionAttributes.ScoreChains | MissionAttributes.ScoreGatherersBoon,
+                    106 => MissionAttributes.Gather | MissionAttributes.Score_Chain,
+                    107 => MissionAttributes.Gather | MissionAttributes.Score_Boon,
+                    108 => MissionAttributes.Gather | MissionAttributes.Score_Chain | MissionAttributes.Score_Boon,
                     109 or 111 => MissionAttributes.Gather | MissionAttributes.Collectables,
-                    110 => MissionAttributes.Gather | MissionAttributes.ReducedItems | MissionAttributes.ScoreTimeRemaining,
+                    110 => MissionAttributes.Gather | MissionAttributes.ReducedItems | MissionAttributes.Score_TimeRemaining,
                     112 => MissionAttributes.Gather | MissionAttributes.ReducedItems,
-                    113 => MissionAttributes.Fish | MissionAttributes.ScoreVariety | MissionAttributes.ScoreTimeRemaining,
-                    114 or 115 => MissionAttributes.Fish | MissionAttributes.ScoreTimeRemaining,
-                    116 => MissionAttributes.Fish | MissionAttributes.Limited | MissionAttributes.ScoreVariety,
-                    117 => MissionAttributes.Fish | MissionAttributes.Limited | MissionAttributes.ScoreLargestSize,
+                    113 => MissionAttributes.Fish | MissionAttributes.Score_Variety | MissionAttributes.Score_TimeRemaining,
+                    114 or 115 => MissionAttributes.Fish | MissionAttributes.Score_TimeRemaining,
+                    116 => MissionAttributes.Fish | MissionAttributes.Limited | MissionAttributes.Score_Variety,
+                    117 => MissionAttributes.Fish | MissionAttributes.Limited | MissionAttributes.Score_LargestSize,
                     118 => MissionAttributes.Fish | MissionAttributes.Limited | MissionAttributes.Collectables,
                     119 or 121 => MissionAttributes.Fish,
-                    120 => MissionAttributes.Fish | MissionAttributes.ScoreLargestSize,
+                    120 => MissionAttributes.Fish | MissionAttributes.Score_LargestSize,
                     122 => MissionAttributes.Fish | MissionAttributes.Collectables,
                     139 => jobs.Contains(18) ? MissionAttributes.Fish : MissionAttributes.Gather, // Critical
                     141 => MissionAttributes.Fish,
@@ -209,11 +186,12 @@ public sealed partial class ICE
 
             if (CosmicHelper.CrafterJobList.Any(x => jobs.Contains(x)))
             {
+                var craftJob = jobs.Where(x => CosmicHelper.CrafterJobList.Contains(x)).FirstOrDefault();
+
                 if (isCritical)
                 {
-                    var requiredAmount = 3; // Sinus Specifically
-                    if (keyId > 535)
-                        requiredAmount = 2; // EVERY other planet
+                    // Sinus critical crafts need 3 items; every other hub uses 2 (was keyId > 535 before).
+                    var requiredAmount = territoryId == CosmicMoonRegistry.Sinus.TerritoryId ? 3 : 2;
 
                     if (Svc.Data.GetExcelSheet<Recipe>().TryGetRow(wksRecipeSheet.Value.Recipe[0].RowId, out var RecipeRow))
                     {
@@ -222,12 +200,17 @@ public sealed partial class ICE
                         var itemId = item.RowId;
                         var itemName = item.Value.Name.ToString();
                         var itemRecipeId = (ushort)RecipeRow.RowId;
+                        var recipeInfo = CosmicHelper.SpecificRecipeInfo(craftJob, itemRecipeId);
+                        var itemIcon = item.Value.Icon;
 
                         crafts_Main[itemRecipeId] = new()
                         {
                             ItemId = itemId,
                             RecipeId = wksRecipeRowId,
                             RequiredAmount = requiredAmount,
+                            RecipeInfo = recipeInfo,
+                            ItemName = itemName,
+                            IconId = itemIcon,
                         };
                     }
                 }
@@ -262,6 +245,10 @@ public sealed partial class ICE
                         var requiredAmount2 = recipeRow.AmountIngredient[1];
                         bool expertMat = recipeRow.IsExpert;
 
+                        var recipeInfo = CosmicHelper.SpecificRecipeInfo(craftJob, recipeId);
+                        var itemIcon = recipeRow.ItemResult.Value.Icon;
+                        var itemName = recipeRow.ItemResult.Value.Name.ToString();
+
                         if (requiredItem2 != 0)
                         {
                             crafts_Main[recipeId] = new()
@@ -274,7 +261,10 @@ public sealed partial class ICE
                                 {
                                     [requiredItem] = requiredAmount,
                                     [requiredItem2] = requiredAmount2
-                                }
+                                },
+                                IconId = itemIcon,
+                                ItemName = itemName,
+                                RecipeInfo = recipeInfo,
                             };
                         }
                         else
@@ -288,7 +278,10 @@ public sealed partial class ICE
                                 RequiredItems = new()
                                 {
                                     [requiredItem] = requiredAmount
-                                }
+                                },
+                                IconId = itemIcon,
+                                ItemName = itemName,
+                                RecipeInfo = recipeInfo,
                             };
                         }
 
@@ -312,6 +305,10 @@ public sealed partial class ICE
                         var requiredItem = recipeRow.Ingredient[0].RowId;
                         var requiredAmount = recipeRow.AmountIngredient[0];
                         bool requiredItemExpert = recipeRow.IsExpert;
+                        var req_recipeInfo = CosmicHelper.SpecificRecipeInfo(craftJob, recipeId);
+                        var req_itemIcon = recipeRow.ItemResult.Value.Icon;
+                        var req_itemName = recipeRow.ItemResult.Value.Name.ToString();
+
                         crafts_Main[recipeId] = new()
                         {
                             ItemId = itemId,
@@ -321,7 +318,10 @@ public sealed partial class ICE
                             RequiredItems = new()
                             {
                                 [requiredItem] = requiredAmount
-                            }
+                            },
+                            IconId = req_itemIcon,
+                            ItemName = req_itemName,
+                            RecipeInfo = req_recipeInfo,
                         };
 
                         // if (isExpert)
@@ -335,6 +335,9 @@ public sealed partial class ICE
                         var preCraftExpert = preRecipeRow.IsExpert;
 
                         var crateId = preRecipeRow.Ingredient[0].RowId;
+                        var pre_recipeInfo = CosmicHelper.SpecificRecipeInfo(craftJob, preRecipeId);
+                        var pre_itemIcon = preRecipeRow.ItemResult.Value.Icon;
+                        var pre_itemName = preRecipeRow.ItemResult.Value.Name.ToString();
 
                         crafts_Pre[preRecipeId] = new()
                         {
@@ -345,7 +348,10 @@ public sealed partial class ICE
                             RequiredItems = new()
                             {
                                 [crateId] = preAmountNeeded
-                            }
+                            },
+                            IconId = pre_itemIcon,
+                            ItemName = pre_itemName,
+                            RecipeInfo = pre_recipeInfo,
                         };
 
                         isExpert |= requiredItemExpert || preCraftExpert;
@@ -370,6 +376,11 @@ public sealed partial class ICE
                             var requiredItem = recipeRow.Ingredient[0].RowId;
                             var requiredAmount = recipeRow.AmountIngredient[0];
                             bool expertCraft = recipeRow.IsExpert;
+
+                            var recipeInfo = CosmicHelper.SpecificRecipeInfo(craftJob, recipeId);
+                            var itemIcon = recipeRow.ItemResult.Value.Icon;
+                            var itemName = recipeRow.ItemResult.Value.Name.ToString();
+
                             crafts_Main[recipeId] = new()
                             {
                                 ItemId = itemId,
@@ -379,7 +390,10 @@ public sealed partial class ICE
                                 RequiredItems = new()
                                 {
                                     [requiredItem] = requiredAmount
-                                }
+                                },
+                                IconId = itemIcon,
+                                ItemName = itemName,
+                                RecipeInfo = recipeInfo,
                             };
                             isExpert |= expertCraft;
                             isCollectable |= recipeRow.CollectableMetadataKey == 1;
@@ -446,12 +460,23 @@ public sealed partial class ICE
                 IceLogging.Verbose($"Temp ActionId: {tempActionId} | MissionID: {keyId}", debugOnly: true);
             if (tempActionId == 42060)
             {
-                if (attributes.HasFlag(MissionAttributes.ScoreGatherersBoon))
-                    attributes |= MissionAttributes.GreaterReachBoon;
-                else if (attributes.HasFlag(MissionAttributes.ScoreChains))
-                    attributes |= MissionAttributes.GreaterReachChain;
+                if (attributes.HasFlag(MissionAttributes.Score_Boon) && attributes.HasFlag(MissionAttributes.Score_Chain))
+                {
+                    attributes &= ~(MissionAttributes.Score_Boon | MissionAttributes.Score_Chain);
+                    attributes |= MissionAttributes.GreaterReach_Boon_Chain;
+                }
+                else if (attributes.HasFlag(MissionAttributes.Score_Boon))
+                {
+                    attributes &= ~MissionAttributes.Score_Boon;
+                    attributes |= MissionAttributes.GreaterReach_Boon;
+                }
+                else if (attributes.HasFlag(MissionAttributes.Score_Chain))
+                {
+                    attributes &= ~MissionAttributes.Score_Chain;
+                    attributes |= MissionAttributes.GreaterReach_Chain;
+                }
                 else
-                    attributes |= MissionAttributes.GreaterReachGather;
+                    attributes |= MissionAttributes.GreaterReach_GatherX;
             }
 
             // - - - Fisher - - - //
@@ -522,44 +547,21 @@ public sealed partial class ICE
             uint rewardItemId = 0;
             uint rewardItemAmount = 0;
 
-            // Enum for the ranking type (makes it easier vs having to do "Flag Contains X")
-            MissionClass enumRank = MissionClass.D;
-            if (attributes.HasFlag(MissionAttributes.ProvisionalWeather))
-                enumRank = MissionClass.Weather;
-            else if (attributes.HasFlag(MissionAttributes.ProvisionalTimed))
-                enumRank = MissionClass.Timed;
-            else if (attributes.HasFlag(MissionAttributes.ProvisionalSequential))
-                enumRank = MissionClass.Sequence;
-            else if (attributes.HasFlag(MissionAttributes.Critical))
-                enumRank = MissionClass.Critical;
-            else
-            {
-                enumRank = rank switch
-                {
-                    5 => MissionClass.Ex,
-                    4 => MissionClass.A,
-                    3 => MissionClass.B,
-                    2 => MissionClass.C,
-                    1 => MissionClass.D,
-                    _ => MissionClass.Unknown,
-                };
-            }
-
             if (rewardSheet.ItemCount != 0)
             {
                 rewardItemId = rewardSheet.ItemCount;
                 rewardItemAmount = rewardSheet.ItemCount;
             }
 
-            if (!SheetMissionDict.ContainsKey(keyId))
+            if (!CosmicHelper.SheetMissionDict.ContainsKey(keyId))
             {
-                SheetMissionDict[keyId] = new CosmicInfo()
+                CosmicHelper.SheetMissionDict[keyId] = new CosmicInfo()
                 {
+                    MissionId = keyId,
                     Name = missionName,
                     Jobs = jobs,
                     ToDoId = missionToDo.RowId,
                     Rank = rank,
-                    Rankv2 = enumRank,
                     Level = level,
                     Attributes = attributes,
                     Weather = weather,
@@ -577,8 +579,8 @@ public sealed partial class ICE
                     ExpModifier_2 = expModifier_2,
                     ExpModifier_3 = expModifier_3,
 
-                    RewardItem = rewardItemId,
-                    RewardItemAmount = rewardItemAmount,
+                    TokenItemId = rewardItemId,
+                    TokenItemAmount = rewardItemAmount,
                     DronebitReward = dronebitAmount,
 
                     MapPosition = mapFlag,
@@ -601,8 +603,8 @@ public sealed partial class ICE
             }
         }
 
-        // Sequence Loading/Storing
-        // 1st passthrough
+        #region Sequence Mission Storing
+
         foreach (var (missionId, info) in CosmicHelper.SheetMissionDict)
         {
             if (info.PreviousMissionId == missionId) 
@@ -640,6 +642,10 @@ public sealed partial class ICE
             }
         }
 
+        #endregion
+
+        #region Icon Assignment
+
         foreach (var Icon in LeveAssignmentSheet)
         {
             var iconId = Icon.RowId;
@@ -659,35 +665,38 @@ public sealed partial class ICE
             {
                 if (Svc.Texture.TryGetFromGameIcon(jobicon, out var texture))
                 {
-                    JobIconDict.TryAdd(iconId, texture);
+                    ClassInfoDict[iconId].JobIcon = texture;
                 }
             }
         }
 
-        for (int i = 0; i < GreyIconList.Count; i++)
+        for (uint i = 8; i < 19; i++)
         {
-            var slot = i + 8;
-            var iconId = GreyIconList[i];
-
-            if (Svc.Texture.TryGetFromGameIcon(iconId, out var texture))
+            if (Svc.Data.GetExcelSheet<ClassJob>().TryGetRow(i, out var classInfo))
             {
-                GreyTexture.TryAdd((uint)slot, texture);
+                var classDict = ClassInfoDict[i];
+                classDict.JobName = classInfo.Name.ToString();
+                classDict.shortName = classInfo.Abbreviation.ToString();
             }
         }
+
+        #endregion
+
+        #region Score Loading
 
         CosmicHelper.LoadMissionScores();
 
         foreach (var entry in C.ScoreKeeper)
         {
-            if (SheetMissionDict.TryGetValue(entry.Key, out var missionEntry) && missionEntry.ClassScore == 0)
+            if (CosmicHelper.SheetMissionDict.TryGetValue(entry.Key, out var missionEntry) && missionEntry.ClassScore == 0)
                 missionEntry.ClassScore = entry.Value;
         }
 
-        foreach (var entry in SheetMissionDict)
+        foreach (var entry in CosmicHelper.SheetMissionDict)
         {
             var missionId = entry.Key;
 
-            if (MissionScoreDict.TryGetValue(missionId, out var score) && score != 0)
+            if (CosmicHelper.MissionScoreDict.TryGetValue(missionId, out var score) && score != 0)
             {
                 entry.Value.ClassScore = score;
             }
@@ -701,31 +710,21 @@ public sealed partial class ICE
             }
         }
 
-        foreach (var item in MoonItemInfoSheet)
+        #endregion
+
+        #region Mission Notes
+
+        // Sheet-driven unlock + quick-level lists (used to be huge static arrays in CustomNotes).
+        CosmicMissionLists.BuildFromSheet();
+        CosmicHelper.CreateMissionNotes();
+        foreach (var mission in MissionUnlock)
         {
-            var itemId = item.Item.RowId;
-            if (itemId == 0) continue;
-            string itemName = ItemSheet.GetRow(itemId).Name.ToString();
-            var type = item.WKSItemSubCategory.RowId;
-            // IceLogging.Debug($"RowID: {item.RowId} | ID: {itemId} | Name: {itemName}", debugOnly: true);
-
-            if (CosmicHelper.GatheringItems.TryGetValue(itemName, out var itemEntry))
-            {
-                itemEntry.itemIds.Add(itemId);
-            }
-            else
-            {
-                // IceLogging.Debug($"Adding a new entry: {itemName}", debugOnly: true);
-
-                CosmicHelper.GatheringItems[itemName] = new()
-                {
-                    Type = item.WKSItemSubCategory.RowId,
-                    itemIds = new HashSet<uint> { itemId },
-                };
-            }
+            CosmicHelper.SheetMissionDict[mission.Key].MissionUnlock = mission.Value;
         }
 
-        foreach (var weather in WeatherIds)
+        #endregion
+
+        foreach (var weather in CosmicHelper.WeatherIds)
         {
             if (Svc.Texture.TryGetFromGameIcon(weather.Value, out var texture))
             {
@@ -776,6 +775,10 @@ public sealed partial class ICE
         }
 
         EnsureAllMission();
+        GatheringUtil.RegisterPresets();
+        CosmicMoonContent.LogContentSummary();
+
+        #region Config Stuff
 
         foreach (var mission in C.MissionConfig)
         {
@@ -793,7 +796,7 @@ public sealed partial class ICE
 
         // This is here, merely for the reason of I want a random joke to show up every time they boot up the plugin. I even added some more!
         var random = new Random();
-        modeSelect_TableInfo.jokeId = random.Next(0, modeSelect_TableInfo.JokeList.Count-1);
+        Window_ExternalDetails.jokeId = random.Next(0, Window_ExternalDetails.JokeList.Count-1);
 
         if (!C.ShowManualMode)
         {
@@ -851,6 +854,8 @@ public sealed partial class ICE
         }
 
         C.Save();
+
+        #endregion
     }
 
     private static void MigrateConfigSettings()
@@ -910,6 +915,16 @@ public sealed partial class ICE
             C.Config_Versioning = 2;
             C.Save();
         }
+        if (C.Config_Versioning < 4)
+        {
+            Shop_DepreciatedItems();
+
+            // had to version bump this up to atleast 4 due to not removing proper thing the first time
+            // updated function/covers up to the right version for this now
+
+            C.Config_Versioning = 4;
+            C.SaveDebounced();
+        }
     }
     public static void EnsureAllMission()
     {
@@ -939,5 +954,35 @@ public sealed partial class ICE
         }
         C.MigratedOldArtisan = true;
         C.Save();
+    }
+    public static void Shop_DepreciatedItems()
+    {
+        // List of ALL the old dyes that were in the shops/gamba wheel. Need to just remove them all lol
+        List<uint> oldDyes = new()
+        {
+            30116, 30117, 48227, 48163, 48164, 30118, 30119,
+            48166, 48165, 30120, 30121, 48168, 48167, 30122,
+            30123, 30124,
+        };
+
+        foreach (var dye in oldDyes)
+        {
+            if (C.CosmoShoppingOrder.Contains(dye))
+                C.CosmoShoppingOrder.Remove(dye);
+
+            if (C.CosmoShopping.ContainsKey(dye))
+                C.CosmoShopping.Remove(dye);
+        }
+
+        foreach (var dye in C.GambaItemWeights.Where(x => x.Type == GambaType.Dye).ToList())
+            C.GambaItemWeights.Remove(dye);
+
+        var dye1 = Task_Gamba.DefaultGambaItems.Where(x => x.ItemId == 52255).FirstOrDefault();
+        if (dye1 != null && !C.GambaItemWeights.Contains(dye1))
+            C.GambaItemWeights.Add(dye1);
+
+        var dye2 = Task_Gamba.DefaultGambaItems.Where(x => x.ItemId == 52256).FirstOrDefault();
+        if (dye2 != null && !C.GambaItemWeights.Contains(dye2))
+            C.GambaItemWeights.Add(dye2);
     }
 }

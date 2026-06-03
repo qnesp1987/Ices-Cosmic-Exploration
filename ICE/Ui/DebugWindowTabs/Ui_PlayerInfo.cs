@@ -1,12 +1,13 @@
 ﻿using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
+using FFXIVClientStructs.FFXIV.Client.System.Framework;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using ICE.Scheduler.Handlers.PictoStuff;
+using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.ImGuiTools;
 using System.Collections.Generic;
-using System.Reflection;
-using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
-using static ICE.Ui.MainUi.ModeSelect_Modes.modeSelect_TableInfo;
 
 namespace ICE.Ui.DebugWindowTabs
 {
@@ -53,7 +54,7 @@ namespace ICE.Ui.DebugWindowTabs
             if (PlayerHelper.IsInCosmicZone())
             {
                 var manager = WKSManager.Instance();
-                var currentMission = manager->CurrentMissionUnitRowId;
+                var currentMission = manager->State.CurrentMission.MissionUnitRowId;
 
                 ImGui.Text($"Current Mission: {currentMission}");
             }
@@ -201,8 +202,6 @@ namespace ICE.Ui.DebugWindowTabs
             return bestMission;
         }
 
-        private static uint selectedId = 0;
-
         private static void DroidCheck()
         {
             if (ImGui.CollapsingHeader("Object info"))
@@ -295,7 +294,7 @@ namespace ICE.Ui.DebugWindowTabs
             if (wks == null)
                 return 0;
 
-            return wks->DevGrade;
+            return wks->State.DevGrade;
         }
     }
 }

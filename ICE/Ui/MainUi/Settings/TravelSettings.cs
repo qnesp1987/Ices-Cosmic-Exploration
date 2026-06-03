@@ -1,12 +1,9 @@
 using Dalamud.Interface;
 using ECommons.GameHelpers;
-using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using ICE.Ui.DebugWindowTabs;
+using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using ICE.Utilities.ImGuiTools;
-using Lumina.Excel.Sheets;
-using Pictomancy;
-using System.Collections.Generic;
 using static ICE.ConfigFiles.Config;
 
 namespace ICE.Ui.MainUi.Settings.Settings_Table
@@ -106,6 +103,15 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.Save();
             }
 
+            bool useRedAlertNpc = C.UseRedAlertNpc;
+            if (ImGui.Checkbox("Use Red Alert NPC for travel", ref useRedAlertNpc))
+            {
+                C.UseRedAlertNpc = useRedAlertNpc;
+                C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("Beta, might not work");
+
             bool avoidStellarReturn = C.AvoidStellarReturn;
             if (ImGui.Checkbox("Avoid Stellar Return for pathing", ref avoidStellarReturn))
             {
@@ -145,8 +151,23 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.DisablePathfindingToRedAlert = DisableRedAlertPathing;
                 C.Save();
             }
-        }
 
+            bool DisableHubActivies_RE = C.DisableHub_Critical;
+            if (ImGui.Checkbox("Don't do hub activities when a red alert is active", ref DisableHubActivies_RE))
+            {
+                C.DisableHub_Critical = DisableHubActivies_RE;
+                C.Save();
+            }
+
+            bool delayAether = C.Delay_Aethernet;
+            if (ImGui.Checkbox("Add delay to athernet / npc travel", ref delayAether))
+            {
+                C.Delay_Aethernet = delayAether;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker("Adds a random delay before interacting with the aethershard / red alert npc travel.\n" +
+                "The delays will be before, and a little bit inbetween interacting with menus");
+        }
         private static void StuckSettings()
         {
             ImGuiEx.IconWithText(FontAwesomeIcon.ExclamationTriangle, "Stuck Detection");
@@ -198,7 +219,6 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
             if (!unstuckEnabled) ImGui.EndDisabled();
         }
-
         private static void CraftingLocations()
         {
             ImGuiEx.IconWithText(FontAwesomeIcon.MapPin, "Crafting Return Spot");
@@ -237,7 +257,6 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 }
             }
         }
-
         private static void FishingLocations()
         {
             ImGuiEx.IconWithText(FontAwesomeIcon.Fish, "Personalized Fishing Spots");
@@ -254,7 +273,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             {
                 ImGui.Text($"Planet: {Player.Territory.Value.PlaceName.Value.Name}");
                 ImGui.Checkbox("Show fishing spot raycast", ref _fishingDebug.ShowFishRay);
-                if (PlayerHelper.LocalPlayer is { } player && _fishingDebug.ShowFishRay)
+                if (Player.Object is { } player && _fishingDebug.ShowFishRay)
                 {
                     _fishingDebug.Draw();
                 }

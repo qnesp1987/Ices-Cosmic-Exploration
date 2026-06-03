@@ -1,13 +1,7 @@
 ﻿using Dalamud.Interface.Utility;
 using ECommons.GameHelpers;
-using FFXIVClientStructs.FFXIV.Client.Game.UI;
-using FFXIVClientStructs.FFXIV.Client.Game.WKS;
+using ICE.Utilities.Cosmic_Helper;
 using Lumina.Excel.Sheets;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using static ICE.ConfigFiles.Config;
 
 namespace ICE.Ui.MainUi.Settings
@@ -58,10 +52,11 @@ namespace ICE.Ui.MainUi.Settings
             if (PlayerHelper.IsInCosmicZone())
             {
                 var territory = Player.Territory.RowId;
-                var itemId = CosmicHelper.PlanetCreditInfo[territory];
-                PlayerHelper.GetItemCount(itemId, out var credits);
-
-                ImGui.Text($"Current location: {territory} | Currency Amount: {credits}");
+                if (CosmicMoonRegistry.TryGetPlanetCreditItemId(territory, out var itemId))
+                {
+                    PlayerHelper.GetItemCount(itemId, out var credits);
+                    ImGui.Text($"Current location: {territory} | Currency Amount: {credits}");
+                }
             }
 
             ImGui.Separator();
@@ -134,10 +129,11 @@ namespace ICE.Ui.MainUi.Settings
             if (PlayerHelper.IsInCosmicZone())
             {
                 var territory = Player.Territory.RowId;
-                var itemId = CosmicHelper.PlanetCreditInfo[territory];
-                PlayerHelper.GetItemCount(itemId, out var credits);
-
-                ImGui.Text($"Current location: {territory} | Currency Amount: {credits}");
+                if (CosmicMoonRegistry.TryGetPlanetCreditItemId(territory, out var itemId))
+                {
+                    PlayerHelper.GetItemCount(itemId, out var credits);
+                    ImGui.Text($"Current location: {territory} | Currency Amount: {credits}");
+                }
             }
 
             ImGui.Separator();

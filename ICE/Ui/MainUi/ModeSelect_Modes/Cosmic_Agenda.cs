@@ -1,34 +1,34 @@
 ﻿using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
+using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.ImGuiTools;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using TerraFX.Interop.Windows;
 using static ICE.ConfigFiles.Config;
 
 namespace ICE.Ui.MainUi.ModeSelect_Modes
 {
-    internal class modeSelect_Agenda
+    internal class Cosmic_Agenda
     {
         public static List<uint> JobOptions = new() { 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 };
 
-        public static List<PlaylistOptions> PlaylistOptionsOrder = new()
+        public static List<PlaylistOptions> PlaylistOptionsOrder { get; } = BuildPlaylistOptionsOrder();
+
+        private static List<PlaylistOptions> BuildPlaylistOptionsOrder()
         {
-            PlaylistOptions.None,
-            PlaylistOptions.SinusMax,
-            PlaylistOptions.PhaennaMax,
-            PlaylistOptions.OizysMax,
-            PlaylistOptions.ToolMaxExp,
-            PlaylistOptions.SelectedRelicLv,
-
-            PlaylistOptions.CreditAmount,
-            PlaylistOptions.PlanetAmount,
-            PlaylistOptions.DronebitAmount,
-
-            PlaylistOptions.ClassLevel,
-        };
+            var order = new List<PlaylistOptions> { PlaylistOptions.None };
+            order.AddRange(CosmicMoonRegistry.MaxRelicPlaylistOptions);
+            order.Add(PlaylistOptions.ToolMaxExp);
+            order.Add(PlaylistOptions.SelectedRelicLv);
+            order.Add(PlaylistOptions.CreditAmount);
+            order.Add(PlaylistOptions.PlanetAmount);
+            order.Add(PlaylistOptions.DronebitAmount);
+            order.Add(PlaylistOptions.ClassLevel);
+            order.Add(PlaylistOptions.GoldClassMissions);
+            return order;
+        }
 
         public static uint SelectedJob = 8;
         public static PlaylistOptions SelectedOption = PlaylistOptions.None;
@@ -44,8 +44,8 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
             {
                 if (ImGui.BeginTabItem("Current Agenda"))
                 {
-                    var selectedJobIcon = CosmicHelper.JobIconDict[SelectedJob];
-                    var selectedJobName = CosmicHelper.GetJobName(SelectedJob);
+                    var selectedJobIcon = CosmicHelper.ClassInfoDict[SelectedJob].JobIcon;
+                    var selectedJobName = CosmicHelper.ClassInfoDict[SelectedJob].JobName;
 
                     ImGui.Image(selectedJobIcon.GetWrapOrEmpty().Handle, new Vector2(20, 20));
                     ImGui.SameLine();
@@ -62,8 +62,9 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
 
                                 foreach (var jobId in JobOptions)
                                 {
-                                    var jobIcon = CosmicHelper.JobIconDict[jobId];
-                                    var jobName = CosmicHelper.GetJobName(jobId);
+                                    var classInfo = CosmicHelper.ClassInfoDict[jobId];
+                                    var jobIcon = classInfo.JobIcon;
+                                    var jobName = classInfo.JobName;
                                     bool isSelected = jobId == SelectedJob;
 
                                     ImGui.TableNextRow();
@@ -122,7 +123,8 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                         if (ImGui.Button("Add to Cosmic Agenda"))
                         {
                             var mode = ModeSelect.Standard;
-                            if (SelectedOption is PlaylistOptions.SinusMax or PlaylistOptions.PhaennaMax or PlaylistOptions.OizysMax or PlaylistOptions.SelectedRelicLv)
+                            if (SelectedOption is PlaylistOptions.SelectedRelicLv
+                                || CosmicMoonRegistry.IsMaxRelicPlaylistGoal(SelectedOption))
                             {
                                 mode = ModeSelect.RelicMode;
                             }
@@ -164,7 +166,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                                 {
                                     Name = profileName,
                                     Description = profileDescription,
-                                    MissionList = new List<AgendaInfo>(C.Cosmic_Agenda)
+                                    MissionList = C.Cosmic_Agenda.Select(a => a.Clone()).ToList()
                                 };
 
                                 C.Agenda_Profiles.Add(newProfile);
@@ -257,7 +259,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                             {
                                 if (ImGui.Button("Apply to agenda"))
                                 {
-                                    C.Cosmic_Agenda = new(agenda.MissionList);
+                                    C.Cosmic_Agenda = agenda.MissionList.Select(a => a.Clone()).ToList();
                                     C.Save();
                                 }
                             }
@@ -293,7 +295,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                                     ImGui.TableNextRow();
 
                                     ImGui.TableSetColumnIndex(0);
-                                    var jobImage = CosmicHelper.JobIconDict[agendaInfo.SelectedJob];
+                                    var jobImage = CosmicHelper.ClassInfoDict[agendaInfo.SelectedJob].JobIcon;
                                     float zoom = 0.15f;
 
                                     ImGui.Image(jobImage.GetWrapOrEmpty().Handle, new Vector2(20, 20), new Vector2(zoom, zoom), new Vector2(1 - zoom, 1 - zoom));
@@ -352,6 +354,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                 ModeSelect.RelicMode => "Relic Grind Mode",
                 ModeSelect.LevelMode => "Leveling Mode",
                 // ModeSelect.ScoreMode => "Scoring Mode",
+                ModeSelect.MissionGoldMode => "Gold Completion Mode",
                 ModeSelect.AgendaMode => "Cosmic Agenda Mode",
                 _ => $"??? {mode}"
             };
@@ -399,7 +402,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                         _dragDrop.DrawButtonDummy(agendaInfo, C.Cosmic_Agenda, i);
 
                         ImGui.TableNextColumn();
-                        var jobImage = CosmicHelper.JobIconDict[agendaInfo.SelectedJob];
+                        var jobImage = CosmicHelper.ClassInfoDict[agendaInfo.SelectedJob].JobIcon;
                         float zoom = 0.15f;
 
                         if (ImGui.ImageButton(jobImage.GetWrapOrEmpty().Handle,new Vector2(20, 20), new Vector2(zoom, zoom), new Vector2(1 - zoom, 1 - zoom)))
@@ -415,8 +418,8 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
 
                                 foreach (var jobId in JobOptions)
                                 {
-                                    var jobIcon = CosmicHelper.JobIconDict[jobId];
-                                    var jobName = CosmicHelper.GetJobName(jobId);
+                                    var jobIcon = CosmicHelper.ClassInfoDict[jobId].JobIcon;
+                                    var jobName = CosmicHelper.ClassInfoDict[jobId].JobName;
                                     bool isSelected = jobId == SelectedJob;
 
                                     ImGui.TableNextRow();
@@ -540,7 +543,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
 
                         ImGui.TableNextColumn();
                         var currentMode = agendaInfo.SelectedMode;
-                        ImGui.SetNextItemWidth(150);
+                        ImGui.SetNextItemWidth(200);
                         if (ImGui.BeginCombo("##Mode Selection", ModeSelectString(currentMode)))
                         {
                             foreach (ModeSelect option in Enum.GetValues(typeof(ModeSelect)))
@@ -557,6 +560,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                                         agendaInfo.SelectedMode = option;
                                         C.Save();
                                     }
+                                    ImGuiEx.HelpMarker(MainWindow.HelpInfoText(option));
 
                                     if (isSelected)
                                     {
@@ -567,50 +571,25 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
 
                             ImGui.EndCombo();
                         }
+                        // Same standard-mission check for every hub — driven by CosmicMoonRegistry, not per-moon copy/paste
                         if (currentMode == ModeSelect.Standard && PlayerHelper.IsInCosmicZone())
                         {
-                            var SinusStandard = CosmicHelper.SheetMissionDict.Where(x => x.Value.TerritoryId == 1237)
-                                .Where(x => C.MissionConfig.ContainsKey(x.Key))
-                                .Where(x => C.MissionConfig[x.Key].Enabled)
-                                .Where(x => x.Value.Jobs.Contains(agendaInfo.SelectedJob))
-                                .Where(x => x.Value.Rank < 6)
-                                .Count();
-
-                            var PhaennaStandard = CosmicHelper.SheetMissionDict.Where(x => x.Value.TerritoryId == 1291)
-                                .Where(x => C.MissionConfig.ContainsKey(x.Key))
-                                .Where(x => C.MissionConfig[x.Key].Enabled)
-                                .Where(x => x.Value.Jobs.Contains(agendaInfo.SelectedJob))
-                                .Where(x => x.Value.Rank < 6)
-                                .Count();
-
-                            var OizysStandard = CosmicHelper.SheetMissionDict.Where(x => x.Value.TerritoryId == 1310)
-                                .Where(x => C.MissionConfig.ContainsKey(x.Key))
-                                .Where(x => C.MissionConfig[x.Key].Enabled)
-                                .Where(x => x.Value.Jobs.Contains(agendaInfo.SelectedJob))
-                                .Where(x => x.Value.Rank < 6)
-                                .Count();
-
-                            bool sinusWarning = PlayerHelper.IsInSinusArdorum() && SinusStandard == 0;
-                            bool phaennaWarning = PlayerHelper.IsInPhaenna() && PhaennaStandard == 0;
-                            bool oizysWarning = PlayerHelper.IsInOizys() && OizysStandard == 0;
-
-                            if (sinusWarning || phaennaWarning || oizysWarning)
+                            var currentMoon = CosmicMoonRegistry.GetMoonForTerritory(Player.Territory.RowId);
+                            if (currentMoon != null)
                             {
-                                string tooltip = "Hey! You seem to not have any standardard missions enabled on the planet/moon you're currently on.\n" +
-                                    "Please make sure to do so for this job if you don't want it to stall out when there is no timed/weather missions.\n" +
-                                    "Currently enabled on the planet you're on:";
-                                    
+                                var standardCount = CosmicMoonRegistry.CountEnabledStandardMissions(
+                                    currentMoon.TerritoryId, agendaInfo.SelectedJob);
 
-                                if (PlayerHelper.IsInSinusArdorum())
-                                    tooltip += "\nSinus = {SinusStandard}";
-                                else if (PlayerHelper.IsInPhaenna())
-                                    tooltip += $"\nPhaenna = {PhaennaStandard}";
-                                else if (PlayerHelper.IsInOizys())
-                                    tooltip += $"\nOizys = {OizysStandard}";
+                                if (standardCount == 0)
+                                {
+                                    var tooltip = "Hey! You seem to not have any standardard missions enabled on the planet/moon you're currently on.\n" +
+                                        "Please make sure to do so for this job if you don't want it to stall out when there is no timed/weather missions.\n" +
+                                        $"Currently enabled on {currentMoon.DisplayName}: {standardCount}";
 
-                                ImGui.SameLine();
-                                ImGui.AlignTextToFramePadding();
-                                ImGui_Ice.IconWithTooltip(Dalamud.Interface.FontAwesomeIcon.ExclamationTriangle, tooltip, false);
+                                    ImGui.SameLine();
+                                    ImGui.AlignTextToFramePadding();
+                                    ImGui_Ice.IconWithTooltip(Dalamud.Interface.FontAwesomeIcon.ExclamationTriangle, tooltip, false);
+                                }
                             }
                         }
 
@@ -630,11 +609,9 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                             var job = agendaInfo.SelectedJob;
                             var territory = Player.Territory.RowId;
 
-                            if (selectedOption is PlaylistOptions.SinusMax 
-                                               or PlaylistOptions.PhaennaMax 
-                                               or PlaylistOptions.OizysMax 
-                                               or PlaylistOptions.SelectedRelicLv 
-                                               or PlaylistOptions.ToolMaxExp)
+                            if (CosmicMoonRegistry.IsMaxRelicPlaylistGoal(selectedOption)
+                                || selectedOption is PlaylistOptions.SelectedRelicLv
+                                || selectedOption is PlaylistOptions.ToolMaxExp)
                             {
                                 var ScoreInfo = CosmicHelper.Cosmic_ClassInfo();
 
@@ -642,12 +619,9 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                                 current = MaxToolProgress(job);
                                 goal = selectedOption switch
                                 {
-                                    PlaylistOptions.SinusMax => 9,
-                                    PlaylistOptions.PhaennaMax => 14,
-                                    PlaylistOptions.OizysMax => 17,
                                     PlaylistOptions.ToolMaxExp => MaxToolProgress(job, false),
                                     PlaylistOptions.SelectedRelicLv => agendaInfo.SelectedRelicLevel,
-                                    _ => 20
+                                    _ => CosmicMoonRegistry.GetMaxRelicGoal(selectedOption),
                                 };
                             }
                             else if (selectedOption is PlaylistOptions.ClassLevel)
@@ -657,8 +631,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                             }
                             else if (selectedOption is PlaylistOptions.CreditAmount)
                             {
-                                uint cosmoCreditId = 45690;
-                                if (PlayerHelper.GetItemCount(cosmoCreditId, out var creditAmount))
+                                if (PlayerHelper.GetItemCount(CosmicHelper.CosmoCreditItemId, out var creditAmount))
                                 {
                                     current = creditAmount;
                                     goal = agendaInfo.CreditAmount;
@@ -666,7 +639,7 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                             }
                             else if (selectedOption is PlaylistOptions.PlanetAmount)
                             {
-                                if (CosmicHelper.PlanetCreditInfo.TryGetValue(territory, out var gambaCredits) && PlayerHelper.GetItemCount(gambaCredits, out var gambaAmount))
+                                if (CosmicMoonRegistry.TryGetPlanetCreditItemId(territory, out var gambaCredits) && PlayerHelper.GetItemCount(gambaCredits, out var gambaAmount))
                                 {
                                     current = gambaAmount;
                                     goal = agendaInfo.PlanetAmount;
@@ -674,13 +647,30 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                             }
                             else if (selectedOption is PlaylistOptions.DronebitAmount)
                             {
-                                if (CosmicHelper.DronebitInfo.TryGetValue(territory, out var dronebitAmount))
+                                if (CosmicMoonRegistry.TryGetDronebit(territory, out var dronebitAmount))
                                 {
                                     PlayerHelper.GetItemCount(dronebitAmount.creditId, out var count);
 
                                     current = count;
                                     goal = agendaInfo.DronebitAmount;
                                 }
+                            }
+                            else if (selectedOption is PlaylistOptions.ClassScore)
+                            {
+                                var ScoreInfo = CosmicHelper.Cosmic_ClassInfo();
+                                current = ScoreInfo[job].Score;
+                                goal = agendaInfo.ClassScore;
+                            }
+                            else if (selectedOption is PlaylistOptions.GoldClassMissions)
+                            {
+                                var planet = Player.Territory.RowId;
+
+                                var sheetInfo = CosmicHelper.SheetMissionDict
+                                    .Where(x => x.Value.Jobs.Contains(agendaInfo.SelectedJob))
+                                    .Where(x => x.Value.TerritoryId == planet);
+
+                                current = sheetInfo.Where(x => x.Value.CompletionStatus is CosmicHelper.Status.Gold).ToList().Count();
+                                goal = sheetInfo.Count();
                             }
 
                             var rowY = ImGui.GetCursorScreenPos().Y;
@@ -692,8 +682,8 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                             if (ImGui.IsItemHovered())
                             {
                                 ImGui.BeginTooltip();
-                                ImGui.Text($"Current: {current}");
-                                ImGui.Text($"Goal: {goal}");
+                                ImGui.Text($"Current: {current:N0}");
+                                ImGui.Text($"Goal: {goal:N0}");
                                 ImGui.EndTooltip();
                             }
                         }
@@ -731,8 +721,6 @@ namespace ICE.Ui.MainUi.ModeSelect_Modes
                 return max;
             }
         }
-
-
         public static string ExportProfile(AgendaProfileInfo profile)
         {
             var json = JsonConvert.SerializeObject(profile);

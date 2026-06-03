@@ -1,6 +1,7 @@
 ﻿using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
+using MissionRank = FFXIVClientStructs.FFXIV.Client.Game.WKS.WKSMissionModule.MissionRank;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -25,7 +26,16 @@ namespace ICE.Scheduler.Tasks
             if (CosmicHelper.CurrentLunarMission == 0)
             {
                 if (!ForceAbandon)
-                    P.MissionTimer.AbandonMission();
+                {
+                    if (Mission_Settings.TurninState > TurninState.None)
+                        P.MissionTimer.CompleteMission();
+                    else
+                        P.MissionTimer.AbandonMission();
+
+                    Mission_Settings.TurninState = TurninState.None;
+
+                    CosmicHelper.Task_UpdateRelicMissionInfo();
+                }
 
                 ForceAbandon = false;
                 WasAbandoned = false;
@@ -51,8 +61,20 @@ namespace ICE.Scheduler.Tasks
                 }
 
                 var rank = Task_CheckScore.CurrentRank();
-                if (rank > WKSManagerCustom.MissionRank.None)
+                if (rank > MissionRank.None)
                 {
+                    if (rank != MissionRank.Failed)
+                    {
+                        Mission_Settings.TurninState = rank switch
+                        {
+                            MissionRank.Gold => TurninState.Gold,
+                            MissionRank.Silver => TurninState.Silver,
+                            MissionRank.Bronze => TurninState.Bronze,
+                            _ => TurninState.Bronze,
+                        };
+                    }
+                        
+
                     IceLogging.Debug("Reporting the mission", tag);
                     ReportMissionInstance();
                     WasAbandoned = false;

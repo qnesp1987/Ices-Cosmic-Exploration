@@ -3,7 +3,7 @@ using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
-using static ICE.Utilities.WKSManagerCustom;
+using MissionRank = FFXIVClientStructs.FFXIV.Client.Game.WKS.WKSMissionModule.MissionRank;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -59,7 +59,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     var rank = CurrentRank();
 
-                    if (rank == MissionRank.Depleted)
+                    if (rank == MissionRank.Failed)
                     {
                         IceLogging.Debug("Mission is either timed out, or out of resources. So going to force a turnin", tag);
                         SchedulerMain.State = IceState.AbandonMission;
@@ -120,7 +120,7 @@ namespace ICE.Scheduler.Tasks
 
                     if (rank != MissionRank.None || sheetInfo.Attributes.HasFlag(MissionAttributes.Critical))
                     {
-                        if (sheetInfo.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining))
+                        if (sheetInfo.Attributes.HasFlag(MissionAttributes.Score_TimeRemaining))
                         {
                             IceLogging.Debug("We're in a mission where we're just meeting the minimum score. Turning in", tag);
                             SchedulerMain.State = IceState.TurninMission;
@@ -151,9 +151,9 @@ namespace ICE.Scheduler.Tasks
                             {
                                 var config = C.MissionConfig[currentMission];
 
-                                shouldTurnin = ((config.TurninGold || config.AutoTurnin) && rank >= MissionRank.Gold) ||
-                                               (config.TurninSilver && rank >= MissionRank.Silver) ||
-                                               (config.TurninBronze && rank >= MissionRank.Bronze);
+                                shouldTurnin = (config.TurninGoal is TurninState.Gold && rank >= MissionRank.Gold) ||
+                                               (config.TurninGoal is TurninState.Silver && rank >= MissionRank.Silver) ||
+                                               (config.TurninGoal is TurninState.Bronze && rank >= MissionRank.Bronze);
                             }
 
                             if (shouldTurnin)
@@ -170,10 +170,7 @@ namespace ICE.Scheduler.Tasks
 
                                 IceLogging.Debug("We're still going for a score/not met threshold.\n" +
                                     $"Rank: {rank.ToString()}\n" +
-                                    $"Any Turnin: {config.AutoTurnin}" +
-                                    $"Gold Turnin: {config.TurninGold}\n" +
-                                    $"Silver Turnin: {config.TurninSilver}\n" +
-                                    $"Bronze Turnin: {config.TurninBronze}", tag);
+                                    $"Turnin Rank: {config.TurninGoal.ToString()}");
                                 return true;
                             }
                         }
@@ -200,7 +197,6 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-
         public static bool? Craft_V2()
         {
             string tag = "[Check Score: Craft]";
@@ -208,7 +204,7 @@ namespace ICE.Scheduler.Tasks
             var currentScore = CurrentScore();
             var rank = CurrentRank();
 
-            if (rank == MissionRank.Depleted)
+            if (rank == MissionRank.Failed)
             {
                 IceLogging.Debug("Mission is either timed out, or out of resources. So going to force a turnin", tag);
                 SchedulerMain.State = IceState.AbandonMission;
@@ -269,9 +265,9 @@ namespace ICE.Scheduler.Tasks
                         {
                             var config = C.MissionConfig[id];
 
-                            shouldTurnin = ((config.TurninGold || config.AutoTurnin) && rank >= MissionRank.Gold) ||
-                                           (config.TurninSilver && rank >= MissionRank.Silver) ||
-                                           (config.TurninBronze && rank >= MissionRank.Bronze);
+                            shouldTurnin = (config.TurninGoal is TurninState.Gold && rank >= MissionRank.Gold) ||
+                                           (config.TurninGoal is TurninState.Silver && rank >= MissionRank.Silver) ||
+                                           (config.TurninGoal is TurninState.Bronze && rank >= MissionRank.Bronze);
                         }
 
                         if (shouldTurnin)
@@ -288,10 +284,7 @@ namespace ICE.Scheduler.Tasks
 
                             IceLogging.Debug("We're still going for a score/not met threshold.\n" +
                                 $"Rank: {rank.ToString()}\n" +
-                                $"Any Turnin: {config.AutoTurnin}" +
-                                $"Gold Turnin: {config.TurninGold}\n" +
-                                $"Silver Turnin: {config.TurninSilver}\n" +
-                                $"Bronze Turnin: {config.TurninBronze}", tag);
+                                $"Highest Goal: {config.TurninGoal.ToString()}");
                             return true;
                         }
                     }
@@ -324,7 +317,7 @@ namespace ICE.Scheduler.Tasks
             var currentScore = CurrentScore();
             var rank = CurrentRank();
 
-            if (rank == MissionRank.Depleted)
+            if (rank == MissionRank.Failed)
             {
                 IceLogging.Debug("Mission is either timed out, or out of resources. So going to force a turnin", tag);
                 SchedulerMain.State = IceState.AbandonMission;
@@ -373,7 +366,7 @@ namespace ICE.Scheduler.Tasks
                             IceLogging.Debug("We're in Leveling Mode, and we only need a bronze. So we're setting turnin to true", tag);
                             shouldTurnin = true;
                         }
-                        else if (sheet.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining))
+                        else if (sheet.Attributes.HasFlag(MissionAttributes.Score_TimeRemaining))
                         {
                             IceLogging.Debug("Score is based on time remaining, and we have some sort of rank. Turning in", tag);
                             shouldTurnin = true;
@@ -390,9 +383,9 @@ namespace ICE.Scheduler.Tasks
                         {
                             var config = C.MissionConfig[id];
 
-                            shouldTurnin = ((config.TurninGold || config.AutoTurnin) && rank >= MissionRank.Gold) ||
-                                           (config.TurninSilver && rank >= MissionRank.Silver) ||
-                                           (config.TurninBronze && rank >= MissionRank.Bronze);
+                            shouldTurnin = (config.TurninGoal is TurninState.Gold && rank >= MissionRank.Gold) ||
+                                           (config.TurninGoal is TurninState.Silver && rank >= MissionRank.Silver) ||
+                                           (config.TurninGoal is TurninState.Bronze && rank >= MissionRank.Bronze);
                         }
 
                         if (shouldTurnin)
@@ -409,10 +402,7 @@ namespace ICE.Scheduler.Tasks
 
                             IceLogging.Debug("We're still going for a score/not met threshold.\n" +
                                 $"Rank: {rank.ToString()}\n" +
-                                $"Any Turnin: {config.AutoTurnin}" +
-                                $"Gold Turnin: {config.TurninGold}\n" +
-                                $"Silver Turnin: {config.TurninSilver}\n" +
-                                $"Bronze Turnin: {config.TurninBronze}", tag);
+                                $"Turnin Goal: {config.TurninGoal.ToString()}");
                             return true;
                         }
                     }
@@ -454,7 +444,7 @@ namespace ICE.Scheduler.Tasks
                     P.TaskManager.Tasks.Clear();
                     return true;
                 }
-                else if (rank == MissionRank.Depleted)
+                else if (rank == MissionRank.Failed)
                 {
                     SchedulerMain.State = IceState.AbandonMission;
                     P.TaskManager.Tasks.Clear();
@@ -462,9 +452,9 @@ namespace ICE.Scheduler.Tasks
                 }
 
                 var config = C.MissionConfig[Id];
-                bool shouldTurnin = ((config.TurninGold || config.AutoTurnin) && rank >= MissionRank.Gold) ||
-                                    (config.TurninSilver && rank >= MissionRank.Silver) ||
-                                    (config.TurninBronze && rank >= MissionRank.Bronze);
+                bool shouldTurnin = (config.TurninGoal is TurninState.Gold && rank >= MissionRank.Gold) ||
+                               (config.TurninGoal is TurninState.Silver && rank >= MissionRank.Silver) ||
+                               (config.TurninGoal is TurninState.Bronze && rank >= MissionRank.Bronze);
 
                 if (shouldTurnin)
                 {
@@ -478,10 +468,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.Debug("We're still going for a score/not met threshold.\n" +
                         $"Rank: {rank.ToString()}\n" +
-                        $"Any Turnin: {config.AutoTurnin}" +
-                        $"Gold Turnin: {config.TurninGold}\n" +
-                        $"Silver Turnin: {config.TurninSilver}\n" +
-                        $"Bronze Turnin: {config.TurninBronze}", tag);
+                        $"Turnin Goal: {config.TurninGoal.ToString()}", tag);
                     return true;
                 }
             }
@@ -496,132 +483,33 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-
         private static unsafe uint CurrentCollectedTotal()
         {
             var managerPtr = WKSManager.Instance();
             if (managerPtr == null) return 0;
 
-            return managerPtr->CollectedTotal;
+            return managerPtr->State.CurrentMission.CollectedTotal;
         }
-
         private static unsafe uint CurrentIndividualTotal()
         {
             var managerPtr = WKSManager.Instance();
             if (managerPtr == null) return 0;
 
-            return managerPtr->CollectedIndividual;
+            return managerPtr->State.CurrentMission.CollectedIndividual;
         }
-
         private static unsafe uint CurrentScore()
         {
             var managerPtr = WKSManager.Instance();
             if (managerPtr == null) return 0;
 
-            var manager = managerPtr;
-            return manager->CurrentScore;
+            return managerPtr->State.CurrentMission.Score;
         }
-
         public static unsafe MissionRank CurrentRank()
         {
             var managerPtr = WKSManager.Instance();
             if (managerPtr == null) return MissionRank.None;
 
-            return (MissionRank)(ushort)managerPtr->CurrentRank;
-        }
-
-        public static TurninState DetermineTurninState()
-        {
-            string timerString = ActiveTimerAddon();
-            TimeSpan silverRequirement = ParseRequirementTime(SilverTimerAddon());
-            TimeSpan goldRequirement = ParseRequirementTime(GoldTimerAddon());
-
-            // Parse the timer string to get remaining time (left side of /)
-            var remainingTime = ParseCurrentTime(timerString);
-
-            IceLogging.Info($"Timer Info:\n" +
-                $"Current Timer: {remainingTime}\n" +
-                $"Silver Requirement: {silverRequirement}\n" +
-                $"Gold Requirement: {goldRequirement}");
-
-            if (remainingTime >= goldRequirement)
-                return TurninState.Gold;
-            else if (remainingTime >= silverRequirement)
-                return TurninState.Silver;
-            else
-                return TurninState.Bronze;
-        }
-
-        private static TimeSpan ParseCurrentTime(string timerString)
-        {
-            IceLogging.Verbose($"Raw timer string: '{timerString}'");
-
-            // Trim to remove the clock icon and any whitespace
-            var currentTimeStr = timerString.Trim();
-
-            // Remove any non-numeric characters except ':' (like the clock icon)
-            currentTimeStr = new string(currentTimeStr.Where(c => char.IsDigit(c) || c == ':').ToArray());
-
-            IceLogging.Verbose($"Cleaned time string: '{currentTimeStr}'");
-
-            // Parse the time (format: M:SS or MM:SS)
-            var timeParts = currentTimeStr.Split(':');
-            IceLogging.Verbose($"Time parts count: {timeParts.Length}");
-
-            if (timeParts.Length != 2)
-            {
-                IceLogging.Verbose($"Time split failed - got {timeParts.Length} parts");
-                return new TimeSpan(0, 0, 0);
-            }
-
-            if (!int.TryParse(timeParts[0], out var minutes) ||
-                !int.TryParse(timeParts[1], out var seconds))
-            {
-                IceLogging.Verbose($"Failed to parse time values");
-                return new TimeSpan(0, 0, 0);
-            }
-
-            IceLogging.Verbose($"Successfully parsed - Minutes: {minutes}, Seconds: {seconds}");
-            return new TimeSpan(0, minutes, seconds);
-        }
-
-        private static TimeSpan ParseRequirementTime(string requirementString)
-        {
-            if (string.IsNullOrWhiteSpace(requirementString))
-                return TimeSpan.Zero;
-
-            // Split on whitespace and take the first part (the time)
-            var parts = requirementString.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0)
-                return TimeSpan.Zero;
-
-            var timeStr = parts[0];
-
-            // Parse the time (format: M:SS or MM:SS)
-            var timeParts = timeStr.Split(':');
-            if (timeParts.Length != 2)
-                return TimeSpan.Zero;
-
-            if (!int.TryParse(timeParts[0], out var minutes) ||
-                !int.TryParse(timeParts[1], out var seconds))
-                return TimeSpan.Zero;
-
-            return new TimeSpan(0, minutes, seconds);
-        }
-
-        private static unsafe string ActiveTimerAddon()
-        {
-            return AddonHelper.GetNodeText("WKSMissionInfomation", 24);
-        }
-
-        private static string SilverTimerAddon()
-        {
-            return AddonHelper.GetNodeText("WKSMissionInfomation", 15);
-        }
-
-        private static string GoldTimerAddon()
-        {
-            return AddonHelper.GetNodeText("WKSMissionInfomation", 11);
+            return managerPtr->State.CurrentMission.Rank;
         }
     }
 }

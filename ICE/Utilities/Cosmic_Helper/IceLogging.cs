@@ -1,6 +1,7 @@
 ﻿using ECommons.GameHelpers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Reflection;
 
 namespace ICE.Utilities.Cosmic_Helper;
 
@@ -27,18 +28,24 @@ internal static class IceLogging
         }
         return string.Empty;
     }
-
     private static string FormatMessage(string message, string prefix = null)
     {
         var callerPrefix = prefix ?? GetCallerPrefix();
         return $"{callerPrefix} {message}";
     }
-
     public static void Verbose(string message, string prefix = null, bool debugOnly = false)
     {
         var formattedMessage = FormatMessage(message, prefix);
-        PluginLog.Verbose(formattedMessage);
-        LogSystem.Log(LogLevel.Verbose, message, prefix);
+        if (debugOnly)
+        {
+#if DEBUG
+            LogSystem.Log(LogLevel.Verbose, message, prefix);
+#endif
+        }
+        else
+        {
+            LogSystem.Log(LogLevel.Verbose, message, prefix);
+        }
     }
 
     public static void Debug(string message, string prefix = null, bool debugOnly = false)
@@ -54,7 +61,7 @@ internal static class IceLogging
         else
         {
             var formattedMessage = FormatMessage(message, prefix);
-            PluginLog.Debug(formattedMessage);
+            // PluginLog.Debug(formattedMessage);
         }
     }
 
@@ -71,7 +78,7 @@ internal static class IceLogging
         else
         {
             var formattedMessage = FormatMessage(message, prefix);
-            PluginLog.Information(formattedMessage);
+            // PluginLog.Information(formattedMessage);
         }
     }
 
@@ -83,7 +90,7 @@ internal static class IceLogging
             if (EzThrottler.Throttle($"Throttling chat message: {s}", 1000))
             {
                 Svc.Chat.Print(s);
-                PluginLog.Information(s);
+                // PluginLog.Information(s);
             }
         }
         else
@@ -91,7 +98,7 @@ internal static class IceLogging
             if (EzThrottler.Throttle($"Throttling chat message: {s}", 1000))
             {
                 Svc.Chat.Print($"{prefix} {s}");
-                PluginLog.Information($"{prefix} {s}");
+                // PluginLog.Information($"{prefix} {s}");
             }
         }
     }
@@ -190,7 +197,7 @@ internal static class IceLogging
     public static class DestinationLogs
     {
         private static List<DestinationEntry> logs = new();
-        private static int maxDestinationCount = 3000;
+        private static int maxDestinationCount = 5000;
 
         public static IReadOnlyList<DestinationEntry> Logs => logs.AsReadOnly();
         public static void Log(Vector3 end)
@@ -205,7 +212,7 @@ internal static class IceLogging
     {
         private static List<LogEntry> logs = new();
         private static Dictionary<string, LogEntry> recentLogs = new(); // Track recent logs for time-window matching
-        private static int maxLogCount = 1000;
+        private static int maxLogCount = 2000;
         private static TimeSpan consolidationWindow = TimeSpan.FromMilliseconds(250); // Merge duplicates within 500ms
 
         public static IReadOnlyList<LogEntry> Logs => logs.AsReadOnly();
@@ -292,6 +299,7 @@ internal static class IceLogging
         public static void CopyToClipboard()
         {
             var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Current Version: {P.GetType().Assembly.GetName().Version}");
             foreach (var log in logs)
             {
                 var countSuffix = log.Count > 1 ? $" (x{log.Count})" : "";

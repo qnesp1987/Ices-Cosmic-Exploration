@@ -1,17 +1,12 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
-using ECommons.Automation;
 using ECommons.GameHelpers;
-using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Sounds;
-using ICE.Ui;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using System.Collections.Generic;
-using TerraFX.Interop.Windows;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
-using static ICE.ConfigFiles.Config;
-using static ICE.Utilities.WKSManagerCustom;
+using MissionRank = FFXIVClientStructs.FFXIV.Client.Game.WKS.WKSMissionModule.MissionRank;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -27,6 +22,7 @@ namespace ICE.Scheduler.Tasks
         {
             P.TaskManager.EnqueueMulti
                 (
+                    new(() => CheckRedAlert(), "Checking for Red Alert Info"),
                     new(() => Mission_TurninV2(), "Turning in the mission to the moon gods", Utils.TaskConfig),
                     new(() => GoldCheck(), "Checking if Gold Check Task needs to be completed"),
                     new(() => CommandCheck(), "Checking for post mission commands"),
@@ -34,6 +30,82 @@ namespace ICE.Scheduler.Tasks
                 );
         }
 
+        public static bool CheckRedAlert()
+        {
+            string tag = "Red Alert Check";
+
+            var id = CosmicHelper.CurrentLunarMission;
+            if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var sheetInfo))
+            {
+                if (sheetInfo.IsCritical)
+                {
+                    IceLogging.Verbose("Critical mission was found, checking for location info", tag);
+
+                    if (CosmicHelper.CriticalLocations.TryGetValue(id, out var location) && location.RawLocation != Vector3.Zero)
+                    {
+                        if (Player.DistanceTo(location.RawLocation) < 75)
+                        {
+                            IceLogging.Verbose("We're close enough to the base location that we don't need to do any fancy traveling, going to check if we need to interact", tag);
+                            P.TaskManager.Insert(() => RedAlert_CloseToTurnin(), "Checking to make sure we're close enough");
+                        }
+                        else
+                        {
+                            IceLogging.Verbose("We're far enough away that we need to consider taking the npc for getting there, so going to do so");
+                            P.TaskManager.Insert(() => Task_NavmeshMove.Enqueue_RedAlertNavmesh(location.RawLocation, distance: 75, missionId: id), "Checking to make sure we're close enough");
+                        }
+                    }
+                    else
+                    {
+                        if (EzThrottler.Throttle("No recorded site: 2000"))
+                            IceLogging.Error("There is currently not a preset destination that we have recorded, so this means it's a new red alert. Please give me time to add this", tag);
+
+                        P.TaskManager.Insert(() => RedAlert_CloseToTurnin(), "Checking to make sure we have a turnin that is close");
+                    }
+                }
+                else
+                {
+                    IceLogging.Info("We don't need to worry about a turnin point, so we're good. Continuing on");
+                }
+            }
+            else
+            {
+                IceLogging.Info($"Somehow we found a mission that doesn't exist? Please report this: {id}", tag);
+            }
+
+            return true;
+        }
+        public static bool RedAlert_CloseToTurnin()
+        {
+            string tag = "Red Alert: Traveling to turnin";
+
+            if (Utils.TryGetObjectCollectionPoint() is { } collectionPoint)
+            {
+                if (!Task_NavmeshMove.Task_NavTo(collectionPoint.Position, false, 4).Value)
+                {
+                    return false;
+                }
+                else
+                {
+                    if (P.Navmesh.IsRunning())
+                    {
+                        if (EzThrottler.Throttle("Telling navmesh to stop"))
+                            P.Navmesh.Stop();
+
+                        return false;
+                    }
+
+                    IceLogging.Info("We've reached a point where we can turnin, doing so", tag);
+                    return true;
+                }
+            }
+            else
+            {
+                if (EzThrottler.Throttle("Null collection point found"))
+                    IceLogging.Verbose("You're not close to the collection point, we need to get closer", tag);
+            }
+
+            return false;
+        }
         public static bool? Mission_TurninV2()
         {
             string tag = "[Mission Turnin]";
@@ -41,6 +113,8 @@ namespace ICE.Scheduler.Tasks
 
             if (id == 0)
             {
+                CosmicHelper.Task_UpdateRelicMissionInfo();
+
                 PathfoundToRed = false;
                 HasInteracted = false;
 
@@ -62,6 +136,8 @@ namespace ICE.Scheduler.Tasks
                 UpdateScoreInfo();
                 Mission_Settings.TurninState = TurninState.None;
 
+                CosmicHelper.Task_UpdateRelicMissionInfo();
+
                 if (Mission_Settings.StopAfterCurrent)
                 {
                     IceLogging.Debug($"Stop after current was enabled. Stopping now", "[Task Turnin]");
@@ -81,79 +157,60 @@ namespace ICE.Scheduler.Tasks
                 {
                     PreviousMissionId = id;
 
-                    if (sheetInfo.Attributes.HasFlag(MissionAttributes.Critical))
+                    if (sheetInfo.IsCritical)
                     {
                         Mission_Settings.TurninState = TurninState.Critical;
-
-                        if (GatheringUtil.CriticalLocations.TryGetValue(id, out var location) && location.RawLocation != Vector3.Zero)
+                        if (!PathfoundToRed)
                         {
-                            if (Player.DistanceTo(location.RawLocation) > 75)
+                            PathfoundToRed = true;
+                            P.Navmesh.Stop();
+                        }
+
+                        var collectionPoint = Utils.TryGetObjectCollectionPoint();
+                        if (!Task_NavmeshMove.Task_NavTo(collectionPoint.Position, false, 4).Value)
+                        {
+                            return false;
+                        }
+
+                        if (EzThrottler.Throttle("Log Throttle", 1000))
+                        {
+                            IceLogging.Debug("Attempting to turnin/chekcing if we need to navmesh stop");
+                        }
+
+                        if (P.Navmesh.IsRunning())
+                        {
+                            if (EzThrottler.Throttle("Telling navmesh to stop"))
+                                P.Navmesh.Stop();
+
+                            return false;
+                        }
+
+                        if (!HasInteracted)
+                        {
+                            if (Svc.Condition[ConditionFlag.OccupiedInQuestEvent] || Svc.Condition[ConditionFlag.OccupiedInEvent])
                             {
-                                if (!Task_NavmeshMove.Task_NavTo(location.RawLocation, false, 75, true).Value)
-                                {
-                                    // We're to far away from the turnin location to get a turnin point, continuing on
-                                    return false;
-                                }
+                                HasInteracted = true;
                             }
                             else
                             {
-                                if (!PathfoundToRed)
+                                if (EzThrottler.Throttle("Interacting with thing", 500))
                                 {
-                                    PathfoundToRed = true;
-                                    P.Navmesh.Stop();
-                                }
-
-                                var collectionPoint = Utils.TryGetObjectCollectionPoint();
-                                if (!Task_NavmeshMove.Task_NavTo(collectionPoint.Position, false, 4).Value)
-                                {
-                                    return false;
-                                }
-
-                                if (EzThrottler.Throttle("Log Throttle", 1000))
-                                {
-                                    IceLogging.Debug("Attempting to turnin/chekcing if we need to navmesh stop");
-                                }
-
-                                if (P.Navmesh.IsRunning())
-                                {
-                                    if (EzThrottler.Throttle("Telling navmesh to stop"))
-                                        P.Navmesh.Stop();
-
-                                    return false;
-                                }
-
-                                if (!HasInteracted)
-                                {
-                                    if (Svc.Condition[ConditionFlag.OccupiedInQuestEvent] || Svc.Condition[ConditionFlag.OccupiedInEvent])
-                                    {
-                                        HasInteracted = true;
-                                    }
-                                    else
-                                    {
-                                        if (EzThrottler.Throttle("Interacting with thing", 500))
-                                        {
-                                            Utils.TargetgameObject(collectionPoint);
-                                            Utils.InteractWithObject(collectionPoint);
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    if (EzThrottler.Throttle("Telling it to wait this much before turning it off", 6000))
-                                    {
-                                        TickRate += 1;
-                                    }
-                                    if (TickRate > 1)
-                                    {
-                                        TickRate = 0;
-                                        HasInteracted = false;
-                                    }
+                                    Utils.TargetgameObject(collectionPoint);
+                                    Utils.InteractWithObject(collectionPoint);
                                 }
                             }
                         }
                         else
                         {
-
+                            if (EzThrottler.Throttle("Telling it to wait this much before turning it off", 6000))
+                            {
+                                TickRate += 1;
+                            }
+                            if (TickRate > 1)
+                            {
+                                TickRate = 0;
+                                HasInteracted = false;
+                            }
                         }
                     }
                     else
@@ -194,7 +251,6 @@ namespace ICE.Scheduler.Tasks
                             {
                                 MissionRank.Gold => TurninState.Gold,
                                 MissionRank.Silver => TurninState.Silver,
-                                MissionRank.Bronze => TurninState.Bronze,
                                 _ => TurninState.Bronze,
                             };
                         }
@@ -215,6 +271,9 @@ namespace ICE.Scheduler.Tasks
 
         private static unsafe void ReportMission()
         {
+            if (EzThrottler.Throttle("Previous Score Set"))
+                PreviousScore = ScoreCheck();
+
             var WKSInstance = WKSManager.Instance();
             WKSInstance->MissionModule->ReportMission();
         }
@@ -265,10 +324,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         if (CosmicHelper.SheetMissionDict.TryGetValue(mission, out var missionInfo))
                         {
-                            bool special = missionInfo.Attributes.HasFlag(MissionAttributes.ProvisionalTimed)
-                                            || missionInfo.Attributes.HasFlag(MissionAttributes.ProvisionalSequential)
-                                            || missionInfo.Attributes.HasFlag(MissionAttributes.ProvisionalWeather)
-                                            || missionInfo.Attributes.HasFlag(MissionAttributes.Critical);
+                            bool special = missionInfo.IsCritical || missionInfo.IsProvisional;
 
                             if (!special && C.KeepARanks)
                                 continue;
@@ -352,7 +408,7 @@ namespace ICE.Scheduler.Tasks
             if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded)
                 return 0;
 
-            var scores = wksManager->Scores;
+            var scores = wksManager->State.Scores;
             return scores[(int)(uint)Player.Job - 8];
         }
 
@@ -381,6 +437,7 @@ namespace ICE.Scheduler.Tasks
                     C.Save();
                 }
             }
+            PreviousScore = 0;
         }
 
         public static bool? ClearAllPostTask()
