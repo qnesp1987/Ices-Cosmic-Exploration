@@ -28,9 +28,18 @@ internal static class CosmicMapMarkerNudges
     // Mission row IDs 1317–1319 on Oizys — not territory 1319 (Auxesia).
     public static bool TryGetOverlapNudge(uint missionRowId, Vector2 mapFlag, out Vector2 nudgedFlag)
     {
-        if (missionRowId is >= 1317 and <= 1319
-            && missionRowId >= CosmicMissionBlocks.OizysStart
-            && missionRowId < CosmicMissionBlocks.AuxesiaStart)
+        List<uint> MissionNudges = new()
+        {
+            // Oizys ones that I decided to just nudge
+            1317, 1318, 1319,
+
+            // Auxesia 
+            1607, // 8 Node BTN - A Rank
+            1641, 1642, 1643, 1644, // BTN Nodes that overlap with the MIN nodes in the same area
+            1647, 1648, 1649 // BTN Master missions overlapping the MIN Master nodes at (-633, 246)
+        };
+
+        if (MissionNudges.Contains(missionRowId))
         {
             nudgedFlag = new(mapFlag.X + 1, mapFlag.Y + 1);
             return true;
